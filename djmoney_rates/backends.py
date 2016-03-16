@@ -1,14 +1,16 @@
 from __future__ import unicode_literals
 
-import logging
 import json
+import logging
 
 from django.core.exceptions import ImproperlyConfigured
 from django.utils import six
+from django.utils import timezone
 
 from .compat import urlopen
 from .exceptions import RateBackendError
-from .models import RateSource, Rate
+from .models import Rate
+from .models import RateSource
 from .settings import money_rates_settings
 
 
@@ -39,25 +41,28 @@ class BaseRateBackend(object):
 
         return self.base_currency
 
-    def get_rates(self):
+    def get_rates(self, date=None):
         """
         Return a dictionary that maps currency code with its rate value
         """
         raise NotImplementedError
 
-    def update_rates(self):
+    def update_rates(self, date=None):
         """
         Creates or updates rates for a source
         """
+        if date is None:
+            date = timezone.now().date()
+
         source, created = RateSource.objects.get_or_create(name=self.get_source_name())
         source.base_currency = self.get_base_currency()
         source.save()
 
         for currency, value in six.iteritems(self.get_rates()):
             try:
-                rate = Rate.objects.get(source=source, currency=currency)
+                rate = Rate.objects.get(source=source, currency=currency, date=date)
             except Rate.DoesNotExist:
-                rate = Rate(source=source, currency=currency)
+                rate = Rate(source=source, currency=currency, date=date)
 
             rate.value = value
             rate.save()
@@ -84,7 +89,8 @@ class OpenExchangeBackend(BaseRateBackend):
 
         self.url = base_url
 
-    def get_rates(self):
+    def get_rates(self, date=None):
+        # TODO: date not used
         try:
             logger.debug("Connecting to url %s" % self.url)
             data = urlopen(self.url).read().decode("utf-8")

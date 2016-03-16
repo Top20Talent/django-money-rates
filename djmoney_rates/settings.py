@@ -28,6 +28,7 @@ DEFAULTS = {
     'OPENEXCHANGE_URL': 'http://openexchangerates.org/api/latest.json',
     'OPENEXCHANGE_APP_ID': '',
     'OPENEXCHANGE_BASE_CURRENCY': 'USD',
+    'RATE_CACHE_TIME': 60 * 60 * 24 * 7  # one week
 }
 
 # List of settings that cannot be empty

@@ -1,21 +1,24 @@
 from __future__ import unicode_literals
 from decimal import Decimal
 
+from django.utils import timezone
+
 from .exceptions import CurrencyConversionException
-from .models import Rate, RateSource
+from .models import Rate
+from .models import RateSource
 from .settings import money_rates_settings
 
 import moneyed
 
 
-def get_rate(currency):
+def get_rate(currency, date=None):
     """Returns the rate from the default currency to `currency`."""
     backend = money_rates_settings.DEFAULT_BACKEND()
     source_name = backend.get_source_name()
+    if not date:
+        date = timezone.now().date()
     try:
-        return Rate.objects.get_rate_value(
-            source_name=source_name,
-            currency=currency)
+        return Rate.objects.get_rate_value(source_name=source_name, currency=currency, date=date)
     except Rate.DoesNotExist:
         raise CurrencyConversionException(
             "Rate for %s in %s do not exists. "
@@ -31,7 +34,7 @@ def get_rate_source():
     except RateSource.DoesNotExist:
         raise CurrencyConversionException(
             "Rate for %s source do not exists. "
-            "Please run python manage.py update_rates" % backend.get_source_name()) # NOQA
+            "Please run python manage.py update_rates" % backend.get_source_name())  # NOQA
 
 
 def get_rate_source_base_currency():
@@ -43,10 +46,10 @@ def get_rate_source_base_currency():
     except RateSource.DoesNotExist:
         raise CurrencyConversionException(
             "Rate for %s source do not exists. "
-            "Please run python manage.py update_rates" % backend.get_source_name()) # NOQA
+            "Please run python manage.py update_rates" % backend.get_source_name())  # NOQA
 
 
-def base_convert_money(amount, currency_from, currency_to):
+def base_convert_money(amount, currency_from, currency_to, date=None):
     """
     Convert 'amount' from 'currency_from' to 'currency_to'
     """
@@ -54,13 +57,13 @@ def base_convert_money(amount, currency_from, currency_to):
 
     # Get rate for currency_from.
     if source_base_currency != currency_from:
-        rate_from = get_rate(currency_from)
+        rate_from = get_rate(currency_from, date)
     else:
         # If currency from is the same as base currency its rate is 1.
         rate_from = Decimal(1)
 
     # Get rate for currency_to.
-    rate_to = get_rate(currency_to)
+    rate_to = get_rate(currency_to, date)
 
     if isinstance(amount, float):
         amount = Decimal(amount).quantize(Decimal('.000001'))
@@ -69,7 +72,7 @@ def base_convert_money(amount, currency_from, currency_to):
     return ((amount / rate_from) * rate_to).quantize(Decimal("1.00"))
 
 
-def convert_money(amount, currency_from, currency_to):
+def convert_money(amount, currency_from, currency_to, date=None):
     """
     Convert 'amount' from 'currency_from' to 'currency_to' and return a Money
     instance of the converted amount.
@@ -78,5 +81,5 @@ def convert_money(amount, currency_from, currency_to):
     new_amount = amount
     # if the currency is the same, avoid convert nothing
     if str(currency_from) != str(currency_to):
-        new_amount = base_convert_money(amount, currency_from, currency_to)
+        new_amount = base_convert_money(amount, currency_from, currency_to, date)
     return moneyed.Money(new_amount, currency_to)

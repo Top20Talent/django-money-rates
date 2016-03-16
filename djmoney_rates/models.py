@@ -1,10 +1,13 @@
 from __future__ import unicode_literals
+from .settings import money_rates_settings
 from django.core.cache import cache
 from django.db import models
+from django.db.models.signals import post_delete
+from django.db.models.signals import post_save
+from django.dispatch import receiver
+from django.utils import timezone
 from django.utils.encoding import python_2_unicode_compatible
 from django.utils.translation import ugettext_lazy as _
-from django.db.models.signals import post_save, post_delete
-from django.dispatch import receiver
 
 
 class CacheRateSourceManager(models.Manager):
@@ -48,53 +51,58 @@ def update_rate_source_cache(sender, instance, created, **kwargs):
 
 
 @receiver(post_delete, sender=RateSource)
-def delete_rate_cache(sender, instance, created, **kwargs):
+def delete_rate_source_cache(sender, instance, created, **kwargs):
     RateSource.objects.clear_base_currency(instance)
 
 
 class CacheRateManager(models.Manager):
 
-    def _get_cache_key(self, source_name, currency):
-        return "dj_money_rate__rate__{}__{}".format(source_name, currency)
+    def _get_cache_key(self, source_name, currency, date):
+        return "dj_money_rate__rate__{}__{}_{}".format(source_name, currency, date)
 
-    def get_rate_value(self, source_name, currency):
-        cache_key = self._get_cache_key(source_name, currency)
+    def get_rate_value(self, source_name, currency, date=None):
+        if date is None:
+            date = timezone.now().date()
+        cache_key = self._get_cache_key(source_name, currency, date)
         rate_value = cache.get(cache_key)
         if rate_value is None:
             rate_value = Rate.objects.get(
                 source__name=source_name,
                 currency=currency).value
-            cache.set(cache_key, rate_value)  # cache for 'ever'
+            cache.set(cache_key, rate_value, money_rates_settings.RATE_CACHE_TIME)
         return rate_value
 
     def set_rate_value(self, rate):
-        cache_key = self._get_cache_key(rate.source.name, rate.currency)
-        cache.set(cache_key, rate.value)  # cache for 'ever'
+        cache_key = self._get_cache_key(rate.source.name, rate.currency, rate.date)
+        cache.set(cache_key, rate.value, money_rates_settings.RATE_CACHE_TIME)
 
     def clear_rate_value(self, rate):
-        cache_key = self._get_cache_key(rate.source.name, rate.currency)
+        cache_key = self._get_cache_key(rate.source.name, rate.currency, rate.date)
         cache.delete(cache_key)
+
+
+def _get_default_date():
+    return timezone.now().date()
 
 
 @python_2_unicode_compatible
 class Rate(models.Model):
     source = models.ForeignKey(RateSource)
-    currency = models.CharField(max_length=3)
+    currency = models.CharField(max_length=3, db_index=True)
     value = models.DecimalField(max_digits=20, decimal_places=6)
+    date = models.DateField(default=_get_default_date, null=True, blank=True, db_index=True)
     objects = CacheRateManager()
 
     class Meta:
-        unique_together = ('source', 'currency')
+        unique_together = ('source', 'currency', 'date')
+        ordering = ('-date', 'currency')
 
     def __str__(self):
         return _("%s at %.6f") % (self.currency, self.value)
 
 
-@receiver(post_save, sender=Rate)
-def update_rate_cache(sender, instance, created, **kwargs):
-    Rate.objects.set_rate_value(instance)
-
-
 @receiver(post_delete, sender=Rate)
-def delete_rate_cache(sender, instance, created, **kwargs):
-    Rate.objects.clear_rate_value(instance)
+@receiver(post_save, sender=Rate)
+def clear_rate_cache(sender, instance, **kwargs):
+    if 'created' not in kwargs or not kwargs['created']:  # clear cache only on delete or update of rate
+        Rate.objects.clear_rate_value(instance)
