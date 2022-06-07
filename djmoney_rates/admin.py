@@ -1,11 +1,15 @@
 from django.contrib import admin
-from .models import Rate
+from .models import Rate, RateSource
 
 
-class RateAdmin(admin.ModelAdmin):
-    list_display = ['currency', 'value', 'date', 'source']
-    list_filter = ['currency']
-    readonly_fields = ['source']
+class RateInline(admin.TabularInline):
+    model = Rate
 
 
-admin.site.register(Rate, RateAdmin)
+class RateSourceAdmin(admin.ModelAdmin):
+    inlines = [
+        RateInline,
+    ]
+
+
+admin.site.register(RateSource, RateSourceAdmin)

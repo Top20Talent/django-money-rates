@@ -1,30 +1,25 @@
 from __future__ import unicode_literals
+
 from decimal import Decimal
 
-from django.utils import timezone
-
 from .exceptions import CurrencyConversionException
-from .models import Rate
-from .models import RateSource
+from .models import Rate, RateSource
 from .settings import money_rates_settings
 
 import moneyed
+import datetime
 
 
-def get_rate(currency, date=None):
+def get_rate(currency, date):
     """Returns the rate from the default currency to `currency`."""
-    backend = money_rates_settings.DEFAULT_BACKEND()
-    source_name = backend.get_source_name()
-    if not date:
-        date = timezone.now().date()
+    source = get_rate_source()
     try:
-        return Rate.objects.get_rate_value(source_name=source_name, currency=currency, date=date)
+        return Rate.objects.get(source=source, currency=currency, date=date).value
     except Rate.DoesNotExist:
         raise CurrencyConversionException(
-            "Rate for %s in %s do not exists. "
+            "Rate for %s in %s, date %s do not exists. "
             "Please run python manage.py update_rates" % (
-                currency, source_name))
-
+                currency, source.name, str(date)))
 
 def get_rate_source():
     """Get the default Rate Source and return it."""
@@ -34,29 +29,17 @@ def get_rate_source():
     except RateSource.DoesNotExist:
         raise CurrencyConversionException(
             "Rate for %s source do not exists. "
-            "Please run python manage.py update_rates" % backend.get_source_name())  # NOQA
+            "Please run python manage.py update_rates" % backend.get_source_name())
 
 
-def get_rate_source_base_currency():
-    """Get the default Rate Source and return it."""
-    backend = money_rates_settings.DEFAULT_BACKEND()
-    try:
-        return RateSource.objects.get_source_base_currency(
-            source_name=backend.get_source_name())
-    except RateSource.DoesNotExist:
-        raise CurrencyConversionException(
-            "Rate for %s source do not exists. "
-            "Please run python manage.py update_rates" % backend.get_source_name())  # NOQA
-
-
-def base_convert_money(amount, currency_from, currency_to, date=None):
+def base_convert_money(amount, currency_from, currency_to, date):
     """
     Convert 'amount' from 'currency_from' to 'currency_to'
     """
-    source_base_currency = get_rate_source_base_currency()
+    source = get_rate_source()
 
     # Get rate for currency_from.
-    if source_base_currency != currency_from:
+    if source.base_currency != currency_from:
         rate_from = get_rate(currency_from, date)
     else:
         # If currency from is the same as base currency its rate is 1.
@@ -77,9 +60,7 @@ def convert_money(amount, currency_from, currency_to, date=None):
     Convert 'amount' from 'currency_from' to 'currency_to' and return a Money
     instance of the converted amount.
     """
-    # assign new_amount to amount in case of no convertion, avoid useless else
-    new_amount = amount
-    # if the currency is the same, avoid convert nothing
-    if str(currency_from) != str(currency_to):
-        new_amount = base_convert_money(amount, currency_from, currency_to, date)
+    if not date:
+        date = datetime.date.today()
+    new_amount = base_convert_money(amount, currency_from, currency_to, date)
     return moneyed.Money(new_amount, currency_to)

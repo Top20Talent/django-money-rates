@@ -16,8 +16,12 @@ back to the defaults.
 """
 
 from django.conf import settings
-from importlib import import_module
-from django.utils import six
+
+try:
+    from django.utils import importlib, six
+except ImportError:
+    import importlib
+    import six
 
 
 USER_SETTINGS = getattr(settings, 'DJANGO_MONEY_RATES', None)
@@ -25,15 +29,11 @@ USER_SETTINGS = getattr(settings, 'DJANGO_MONEY_RATES', None)
 DEFAULTS = {
     'DEFAULT_BACKEND': 'djmoney_rates.backends.OpenExchangeBackend',
 
-    'OPENEXCHANGE_URL': 'http://openexchangerates.org/api/latest.json',
+    # 'OPENEXCHANGE_URL': 'http://openexchangerates.org/api/latest.json',
+    'OPENEXCHANGE_URL_LATEST': 'http://openexchangerates.org/api/latest.json',
+    'OPENEXCHANGE_URL_HISTORICAL': 'http://openexchangerates.org/api/historical/%s.json',
     'OPENEXCHANGE_APP_ID': '',
     'OPENEXCHANGE_BASE_CURRENCY': 'USD',
-
-    'CURRENCYLAYER_URL': 'http://apilayer.net/api/',
-    'CURRENCYLAYER_KEY': '',
-    'CURRENCYLAYER_BASE_CURRENCY': 'USD',
-
-    'RATE_CACHE_TIME': 60 * 60 * 24 * 7  # one week
 }
 
 # List of settings that cannot be empty
@@ -66,7 +66,7 @@ def import_from_string(val, setting_name):
     try:
         parts = val.split('.')
         module_path, class_name = '.'.join(parts[:-1]), parts[-1]
-        module = import_module(module_path)
+        module = importlib.import_module(module_path)
         return getattr(module, class_name)
     except ImportError as e:
         msg = "Could not import '%s' for setting '%s'. %s: %s." % (val, setting_name, e.__class__.__name__, e)
@@ -111,5 +111,6 @@ class MoneyRatesSettings(object):
     def validate_setting(self, attr, val):
         if not val and attr in self.mandatory:
             raise AttributeError("django-money-rates setting: '%s' is mandatory" % attr)
+
 
 money_rates_settings = MoneyRatesSettings(USER_SETTINGS, DEFAULTS, IMPORT_STRINGS, MANDATORY)
